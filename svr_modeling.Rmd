@@ -1,0 +1,415 @@
+---
+title: "svr and visuals"
+output: html_document
+date: "2024-04-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r}
+data = read_csv('final_data.csv', show_col_types=FALSE)
+head(data)
+```
+```{r, warning=FALSE}
+#install.packages("Metrics")
+library(Metrics)
+```
+
+```{r}
+#baseline linear model
+pred_df = data %>% select(4:15, 23:25, 27:29, 31:45)
+pred_df = na.omit(pred_df)
+model0 = lm(Stream~.,data=pred_df)
+summary(model0)$adj.r
+```
+```{r}
+rmse(pred_df$Stream, model0$fitted.values)
+```
+
+
+```{r, warning = FALSE}
+#install.packages("e1071")
+library(e1071)
+```
+
+```{r}
+modelsvm = svm(Stream~.,data=pred_df)
+predYsvm = predict(modelsvm, pred_df)
+```
+
+```{r}
+summary(modelsvm)
+```
+
+```{r}
+rmse(pred_df$Stream, predYsvm)
+```
+
+```{r}
+rsq <- function (x, y) cor(x, y) ^ 2
+rsq(pred_df$Stream, predYsvm)
+```
+
+```{r}
+#Fine-tuning/optimization using cross-validation
+#Initial patemeters:
+# SVM-Type:  eps-regression 
+# SVM-Kernel:  radial 
+# cost:  1 
+# gamma:  0.02272727 
+# epsilon:  0.1 
+# Number of Support Vectors:  599
+```
+
+
+```{r}
+#colSums(is.na(pred_df))
+```
+
+```{r}
+## Tuning SVR model by varying values of maximum allowable error and cost parameter
+set.seed(216)
+OptModelsvm=tune(svm, Stream~., data=pred_df,ranges=list(epsilon=seq(0,1,0.1), cost=1:25), tunecontrol = tune.control(sampling = "cross", cross = 5))
+```
+
+// should take like 3-5 minutes 
+
+```{r}
+print(OptModelsvm)
+```
+
+
+```{r}
+plot(OptModelsvm)
+```
+
+```{r}
+BstModel=OptModelsvm$best.model
+PredYBst=predict(BstModel,pred_df)
+rmse(PredYBst,pred_df$Stream)
+rsq(PredYBst,pred_df$Stream)
+```
+
+
+# VISUALS
+```{r, warning=FALSE}
+library(ggplot2)
+library(plotly)
+```
+
+```{r}
+graph_data = data %>% select(1, 25, 29, 31:45) %>% select(-16)
+graph_data %>% head()
+```
+```{r}
+graph_data_long <- graph_data %>%
+  mutate(row = row_number()) %>%
+  pivot_longer(cols = -c(row, Artist, Stream, year, average_followers), names_to = "Genre", values_to = "Indicator")
+```
+
+```{r}
+graph_data_long = graph_data_long %>% filter(Indicator != 0)
+graph_data_long %>% head()
+```
+
+```{r}
+ordered <- transform(graph_data_long, Genre = reorder(Genre, -table(Genre)[Genre]))
+
+graph1 <- ggplot(ordered, aes(x = Genre, fill = Genre)) +
+  geom_bar() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) +
+  scale_fill_hue() +  
+  theme_bw() +
+  coord_flip()  +
+  labs(y = "Frequency")
+
+graph1
+```
+```{r}
+#let's try doing avg_followers, streams, streams, genre  
+p <- graph_data_long %>%
+  ggplot( aes(average_followers, Stream, color=Genre)) +
+  geom_point() +
+  theme_bw()
+
+ggplotly(p)
+```
+
+```{r, warning=FALSE}
+ggplot(graph_data_long, aes(x = Genre, y = Stream / 10^6, color=Genre)) +
+  geom_jitter() +
+  theme_bw() +
+  labs(x = "Genre", y = "Streams (M)")+
+  coord_flip()+
+  guides(color = FALSE)
+```
+
+
+#RESULTS GRAPH
+```{r, warning = FALSE}
+spotify_data1 <- read_csv("spotify_genres.csv")
+spotify_data2 = spotify_data1 %>% mutate(presence = 1) %>%
+  pivot_wider(names_from = track_genre, values_from = presence, values_fill = list(presence = 0))
+```
+```{r}
+spotify_data3 = spotify_data2 %>%
+    mutate(
+    Rock = ifelse(
+      `alt-rock` == 1 | `alternative` == 1 | `grunge` == 1 | `hard-rock` == 1 | 
+      `punk-rock` == 1 | `punk` == 1 | `psych-rock` == 1 | `rock` == 1 | 
+      `rock-n-roll` == 1 | `rockabilly` == 1 | `emo` == 1 | `j-rock` == 1 | `goth` == 1,
+      1,
+      0
+    ),
+    Metal = ifelse(
+      `metal` == 1 | `heavy-metal` == 1 | `death-metal` == 1 | `hardcore` == 1 | 
+      `metalcore` == 1 | `black-metal` == 1 | `grindcore` == 1,
+      1,
+      0
+    ),
+    Pop = ifelse(
+      `pop` == 1 | `indie-pop` == 1 | `synth-pop` == 1 | `power-pop` == 1 | 
+      `pop-film` == 1 | `disco` == 1 | `j-pop` == 1 | `k-pop` == 1 | 
+      `mandopop` == 1 | `indie` == 1,
+      1,
+      0
+    ),
+    `Electronic & Dance` = ifelse(
+      `edm` == 1 | `house` == 1 | `techno` == 1 | `trance` == 1 | 
+      `electronic` == 1 | `electro` == 1 | `progressive-house` == 1 | 
+      `deep-house` == 1 | `disco` == 1 | `dance` == 1 | 
+      `drum-and-bass` == 1 | `dubstep` == 1 | `dub` == 1 | 
+      `chicago-house` == 1 | `garage` == 1 | `club` == 1 | 
+      `j-dance` == 1 | `dancehall` == 1 | `minimal-techno` == 1 | 
+      `detroit-techno` == 1 | `breakbeat` == 1 | `hardstyle` == 1 | `party` == 1,
+      1,
+      0
+    ),
+    `Hip-Hop, R&B & Reggae` = ifelse(
+      `hip-hop` == 1 | `r-n-b` == 1 | `reggaeton` == 1 | 
+      `reggae` == 1 | `ska` == 1 | `trip-hop` == 1, 
+      1,
+      0
+    ),
+    `Jazz & Blues` = ifelse(
+      `jazz` == 1 | `blues` == 1 | `soul` == 1 | `funk` == 1 | `gospel` == 1,
+      1 | `groove` == 1,
+      0
+    ),
+    Country = ifelse(
+      `country` == 1 | `bluegrass` == 1 | `honky-tonk` == 1,
+      1 | `folk` == 1,
+      0
+    ),
+    Latin = ifelse(
+      `latin` == 1 | `samba` == 1 | `salsa` == 1 | `brazil` == 1 | 
+      `sertanejo` == 1 | `pagode` == 1 | `tango` == 1,
+      1,
+      0
+    ),
+    `World Music` = ifelse(
+      `afrobeat` == 1 | `world-music` == 1 | 
+      `forro` == 1 | `malay` == 1 | `indian` == 1 | `spanish` == 1 | 
+      `swedish` == 1 | `iranian` == 1 | `turkish` == 1 | `german` == 1 | `french` == 1,
+      1,
+      0
+    ),
+    `Classical & Instrumental` = ifelse(
+      `classical` == 1 | `opera` == 1 | `piano` == 1,
+      1,
+      0
+    ),
+    `Children & Comedy` = ifelse(
+      `children` == 1 | `comedy` == 1 | `show-tunes` == 1 | `disney` == 1,
+      1,
+      0
+    ),
+    `Ambient & New Age` = ifelse(
+      `ambient` == 1 | `new-age` == 1 | `sleep` == 1 | `study` == 1,
+      1,
+      0
+    ),
+    `Other Genres` = ifelse(
+      `anime` == 1 | `british` == 1 | `happy` == 1 | `romance` == 1 | `idm` == 1 | `industrial` == 1 | `cantopop` == 1 | `guitar` == 1  | `j-idol` == 1 | `sad` == 1,
+      1,
+      0
+    )
+  )
+```
+
+```{r}
+spotify_data4 = spotify_data3 %>% select(-c(21:134))
+```
+
+```{r, warning = FALSE}
+spotify_geo = read_csv('geo_spotify.csv')
+spotify_geo1 = spotify_geo %>% separate("Rank;Title;Artists;Date;Danceability;Energy;Loudness;Speechiness;Acousticness;Instrumentalness;Valence;# of Artist;Artist (Ind.);# of Nationality;Nationality;Continent;Points (Total);Points (Ind for each Artist/Nat);id;Song URL", 
+                                        into = c("Rank", "Title", "Artists", "Date", "Danceability", "Energy", "Loudness", "Speechiness", "Acousticness", "Instrumentalness", "Valence", "# of Artist", "Artist (Ind.)", "# of Nationality", "Nationality", "Continent", "Points (Total)", "Points (Ind. for each Artist/Nat)", "id", "Song URL"),
+    sep = ";"
+  )
+```
+```{r}
+spotify_geo2 = distinct(spotify_geo1) %>% select("Artists", "Nationality")
+spotify_geo2_unique <- spotify_geo2 %>%
+  distinct(Artists, .keep_all = TRUE)
+genre_geo <- spotify_data4 %>%
+  left_join(spotify_geo2_unique, by = c("artists" = "Artists"))
+
+genre_geo2 = genre_geo %>%
+  filter(!is.na(Nationality))
+```
+
+```{r}
+genre_columns <- c("Rock", "Metal", "Pop", "Electronic & Dance", 
+                   "Hip-Hop, R&B & Reggae", "Jazz & Blues", "Country", 
+                   "Latin", "World Music", "Classical & Instrumental",
+                   "Children & Comedy", "Ambient & New Age", "Other Genres")
+
+# Create new Genre variable
+genre_geo2$Genre <- apply(genre_geo2[genre_columns], 1, function(row) {
+  genres <- genre_columns[row == 1] 
+  paste(genres, collapse = ", ")})  
+```
+
+```{r}
+corrections <- list(
+  "Chili" = "Chile",
+  "Swiss" = "Switzerland",
+  "United States" = "United States of America")
+genre_geo3 <- genre_geo2 %>%
+  mutate(Nationality = recode(Nationality, !!!corrections))
+```
+
+```{r}
+head(genre_geo3)
+```
+```{r}
+results_data = genre_geo3 %>% select(6, 21:34) %>% rename(`Hip Hop&RnB` = `Hip-Hop, R&B & Reggae`, "Other" = "Other Genres", "Chill" = `Ambient & New Age`) %>% select(-'Children & Comedy')
+head(results_data)
+```
+
+```{r}
+graph_data_long <- results_data %>%
+  mutate(row = row_number()) %>%
+  pivot_longer(cols = -c(row, popularity, Nationality), names_to = "Genre", values_to = "Indicator")
+```
+
+```{r}
+graph_data_long = graph_data_long %>% filter(Indicator != 0)
+```
+
+```{r}
+graph_data_long %>% head()
+```
+```{r}
+unique(graph_data_long$Nationality)
+```
+```{r}
+top_nationalities <- graph_data_long %>%
+  count(Nationality) %>%
+  top_n(5, wt = n)  #top 5 nationalities by frequency
+top_nationalities
+```
+```{r}
+#how abot by popularity instead
+top_countries <- graph_data_long %>%
+  group_by(Nationality) %>%
+  summarise(avg_popularity = mean(popularity, na.rm = TRUE)) %>%
+  top_n(5, wt = avg_popularity)  # Select the top 10 countries by average popularity
+top_countries
+```
+
+```{r}
+graph_data_long %>% head()
+```
+
+```{r}
+nationality_counts <- graph_data_long %>%
+  count(Nationality) %>%
+  arrange(desc(n)) %>%
+  filter(row_number() <= 5)  # Keep only the top 5 most frequent nationalities
+
+filtered_data <- graph_data_long %>%
+  filter(Nationality %in% nationality_counts$Nationality)
+
+filtered_data <- filtered_data %>%
+  filter(Genre != "World Music")  
+
+interactive_plot <- filtered_data %>%
+  group_by(Nationality, Genre) %>%
+  summarise(popularity = sum(popularity)) %>%
+  ggplot(aes(x = Nationality, y = popularity, fill = Genre)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Nationality", y = "Popularity", fill = "Genre") +
+  theme_minimal() +
+  coord_flip()
+
+print(interactive_plot)
+```
+
+
+
+```{r}
+nationality_popularity <- graph_data_long %>%
+  group_by(Nationality) %>%
+  summarise(total_popularity = sum(popularity)) %>%
+  arrange(desc(total_popularity))  # Arrange by total popularity in descending order
+
+# Keep only the top 5 nationalities with the highest total popularity
+top_nationalities <- nationality_popularity %>%
+  top_n(5, wt = total_popularity)
+
+filtered_data <- graph_data_long %>%
+  filter(Nationality %in% top_nationalities$Nationality)
+
+filtered_data <- filtered_data %>%
+  filter(Genre != "World Music")
+
+interactive_plot <- filtered_data %>%
+  group_by(Nationality, Genre) %>%
+  summarise(popularity = sum(popularity)) %>%
+  ggplot(aes(x = Nationality, y = popularity, fill = Genre)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Nationality", y = "Popularity", fill = "Genre") +
+  theme_minimal() +
+  coord_flip()
+
+print(interactive_plot)
+
+```
+
+```{r}
+nationality_popularity <- graph_data_long %>%
+  filter(Nationality != "United States of America" & Nationality != "United Kingdom") %>%
+  group_by(Nationality) %>%
+  summarise(total_popularity = sum(popularity)) %>%
+  arrange(desc(total_popularity))  # Arrange by total popularity in descending order
+
+top_nationalities <- nationality_popularity %>%
+  top_n(5, wt = total_popularity)
+
+filtered_data <- graph_data_long %>%
+  filter(Nationality %in% top_nationalities$Nationality)
+
+filtered_data <- filtered_data %>%
+  filter(Genre != "World Music")
+
+interactive_plot <- filtered_data %>%
+  group_by(Nationality, Genre) %>%
+  summarise(popularity = sum(popularity)) %>%
+  ggplot(aes(x = Nationality, y = popularity, fill = Genre)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Nationality", y = "Popularity", fill = "Genre") +
+  theme_minimal() +
+  coord_flip()
+
+print(interactive_plot)
+```
+
+
+
+
+
